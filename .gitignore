@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+Untitled*.ipynb
+
+# Local environments
+.env
+.venv/
+venv/
+
+# Experiment artifacts
+cache/
+outputs/
+logs/
+logs_layer/
+calibration_cache/
+dataset_cache/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
