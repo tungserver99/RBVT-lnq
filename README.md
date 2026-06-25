@@ -121,6 +121,6 @@ Note that shared-cache cleanup saves more disk, but later runs for another bit-w
 
 - GuidedQuant LNQ still needs its initialization cache, so the project first runs the GuidedQuant seed quantizer before `layerwise_nuq`.
 - The saved output models are dense Hugging Face checkpoints for clean evaluation with the `RBVTQuant` eval flow.
-- The default CLI settings are `--rbvt-position assignment_last` and `--rbvt-mode lnq_aware`.
+- The default CLI settings are `--rbvt-position assignment_last`, `--rbvt-mode lnq_aware`, `--rbvt-budget-p 0.005`, `--rbvt-target-ratio 0.1`, and RBVT MSE guard enabled in the helper scripts.
 - Reviewer-facing note: the baseline code lives in `thirdparty/GuidedQuant`; the experiment glue in this repo only orchestrates runs and post-processes artifacts.
 - Experiment defaults are aligned with `RBVTQuant`: C4 calibration with `128/2048`, perplexity on `WikiText-2` and `C4`, and `lm-eval` on `arc_easy`, `arc_challenge`, `hellaswag`, `piqa`, `winogrande`, `boolq`, `rte`, `openbookqa`, `lambada_openai`, `mmlu`, and `gsm8k`.

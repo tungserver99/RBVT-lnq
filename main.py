@@ -136,6 +136,31 @@ def parse_args():
     parser.add_argument("--rbvt-n-calib", type=int, default=128)
     parser.add_argument("--rbvt-max-length", type=int, default=2048)
     parser.add_argument("--rbvt-lambda", type=float, default=1.0)
+    parser.add_argument(
+        "--rbvt-topk",
+        type=int,
+        default=0,
+        help="Optional per-row candidate prefilter for RBVT; 0 keeps the full candidate set.",
+    )
+    parser.add_argument(
+        "--rbvt-budget-p",
+        type=float,
+        default=0.005,
+        help="Fraction of sorted RBVT candidates retained before relaxation; 0 disables flips.",
+    )
+    parser.add_argument(
+        "--rbvt-target-ratio",
+        type=float,
+        default=0.1,
+        help="Scaled RBVT target magnitude; 0.1 matches the 1/10 target reduction suggestion.",
+    )
+    parser.add_argument(
+        "--rbvt-mse-guard",
+        dest="rbvt_mse_guard",
+        action="store_true",
+        default=False,
+        help="Keep only neighbour moves satisfying the MSE-improving guard gap < 2|e|.",
+    )
     parser.add_argument("--gap-floor", type=float, default=1e-8)
     parser.add_argument("--row-chunk", type=int, default=256)
     parser.add_argument(
@@ -178,6 +203,10 @@ def main():
         args.hf_token = resolve_hf_token()
     if args.rbvt_lambda < 0.0:
         raise ValueError("--rbvt-lambda must be non-negative")
+    if not 0.0 <= args.rbvt_budget_p <= 1.0:
+        raise ValueError("--rbvt-budget-p must be in [0, 1]")
+    if not 0.0 <= args.rbvt_target_ratio <= 1.0:
+        raise ValueError("--rbvt-target-ratio must be in [0, 1]")
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -294,6 +323,10 @@ def main():
             cd_cycles=args.cd_cycles,
             rbvt_calib_texts=tokenizer_texts,
             rbvt_lambda=args.rbvt_lambda,
+            rbvt_topk=args.rbvt_topk,
+            rbvt_budget_p=args.rbvt_budget_p,
+            rbvt_target_ratio=args.rbvt_target_ratio,
+            rbvt_mse_guard=args.rbvt_mse_guard,
             gap_floor=args.gap_floor,
             row_chunk=args.row_chunk,
             rbvt_max_length=args.rbvt_max_length,
@@ -317,6 +350,11 @@ def main():
         "lnq_cache_path": str(lnq_cache_path),
         "rbvt_position": None if args.skip_rbvt else args.rbvt_position,
         "rbvt_mode": None if args.skip_rbvt else args.rbvt_mode,
+        "rbvt_lambda": None if args.skip_rbvt else args.rbvt_lambda,
+        "rbvt_topk": None if args.skip_rbvt else args.rbvt_topk,
+        "rbvt_budget_p": None if args.skip_rbvt else args.rbvt_budget_p,
+        "rbvt_target_ratio": None if args.skip_rbvt else args.rbvt_target_ratio,
+        "rbvt_mse_guard": None if args.skip_rbvt else args.rbvt_mse_guard,
         "variants": {
             "lnq": lnq_summary,
             **({rbvt_variant_name: rbvt_last_summary} if rbvt_variant_name is not None else {}),

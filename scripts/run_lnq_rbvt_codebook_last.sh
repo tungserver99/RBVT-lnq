@@ -7,6 +7,10 @@ cd "$ROOT_DIR"
 RBVT_DEVICE="${RBVT_DEVICE:-cuda:0}"
 NUM_GROUPS="${NUM_GROUPS:-4}"
 RBVT_MODE="${RBVT_MODE:-lnq_aware}"
+RBVT_TOPK="${RBVT_TOPK:-0}"
+RBVT_BUDGET_P="${RBVT_BUDGET_P:-0.005}"
+RBVT_TARGET_RATIO="${RBVT_TARGET_RATIO:-0.1}"
+RBVT_MSE_GUARD="${RBVT_MSE_GUARD:-1}"
 
 MODELS=(
   "meta-llama/Llama-3.1-8B"
@@ -46,6 +50,11 @@ for model in "${MODELS[@]}"; do
   echo "=== LNQ + RBVT codebook-last (${RBVT_MODE}) runs for ${model} ==="
 
   for bits in "${BITS_LIST[@]}"; do
+    extra_rbvt_args=()
+    if [[ "$RBVT_MSE_GUARD" == "1" ]]; then
+      extra_rbvt_args+=(--rbvt-mse-guard)
+    fi
+
     python main.py \
       --model-path "$model" \
       --bits "$bits" \
@@ -58,6 +67,10 @@ for model in "${MODELS[@]}"; do
       --rbvt-calib-dataset c4 \
       --rbvt-n-calib 128 \
       --rbvt-max-length 2048 \
+      --rbvt-topk "$RBVT_TOPK" \
+      --rbvt-budget-p "$RBVT_BUDGET_P" \
+      --rbvt-target-ratio "$RBVT_TARGET_RATIO" \
+      "${extra_rbvt_args[@]}" \
       --eval-max-length 2048 \
       --include-lm-eval \
       --lm-eval-tasks "${LM_EVAL_TASKS[@]}" \

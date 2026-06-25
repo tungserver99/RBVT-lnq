@@ -15,6 +15,10 @@ CD_CYCLES="${CD_CYCLES:-4}"
 RBVT_CALIB_DATASET="${RBVT_CALIB_DATASET:-c4}"
 RBVT_N_CALIB="${RBVT_N_CALIB:-128}"
 RBVT_MAX_LENGTH="${RBVT_MAX_LENGTH:-2048}"
+RBVT_TOPK="${RBVT_TOPK:-0}"
+RBVT_BUDGET_P="${RBVT_BUDGET_P:-0.005}"
+RBVT_TARGET_RATIO="${RBVT_TARGET_RATIO:-0.1}"
+RBVT_MSE_GUARD="${RBVT_MSE_GUARD:-1}"
 EVAL_MAX_LENGTH="${EVAL_MAX_LENGTH:-2048}"
 INCLUDE_LM_EVAL=1
 
@@ -239,6 +243,7 @@ run_one() {
   local rbvt_mode="$4"
   local model_slug output_dir
   local lm_eval_args=()
+  local extra_rbvt_args=()
 
   model_slug="$(slugify "$model")"
 
@@ -272,6 +277,9 @@ run_one() {
 
   output_dir="${OUTPUT_ROOT}/${model_slug}_lnq_rbvt_${mode}_${rbvt_mode}_${bits}bit"
   echo "=== LNQ + RBVT | position=${mode} | target=${rbvt_mode} | model=${model} | bits=${bits} ==="
+  if [[ "$RBVT_MSE_GUARD" == "1" ]]; then
+    extra_rbvt_args=(--rbvt-mse-guard)
+  fi
   run_cmd python main.py \
     --model-path "$model" \
     --bits "$bits" \
@@ -287,6 +295,10 @@ run_one() {
     --rbvt-calib-dataset "$RBVT_CALIB_DATASET" \
     --rbvt-n-calib "$RBVT_N_CALIB" \
     --rbvt-max-length "$RBVT_MAX_LENGTH" \
+    --rbvt-topk "$RBVT_TOPK" \
+    --rbvt-budget-p "$RBVT_BUDGET_P" \
+    --rbvt-target-ratio "$RBVT_TARGET_RATIO" \
+    "${extra_rbvt_args[@]}" \
     --eval-max-length "$EVAL_MAX_LENGTH" \
     "${lm_eval_args[@]}" \
     --rbvt-position "$mode" \
@@ -311,15 +323,25 @@ expand_rbvt_modes() {
 
 for model in "${MODELS[@]}"; do
   for bits in "${BITS_LIST[@]}"; do
-    while IFS= read -r mode; do
-      if [[ "$mode" == "lnq" ]]; then
-        run_one "$model" "$bits" "$mode" "na"
-      else
-        while IFS= read -r rbvt_mode; do
+    if [[ "$MODE" == "all" ]]; then
+      run_one "$model" "$bits" "lnq" "na"
+
+      while IFS= read -r rbvt_mode; do
+        for mode in codebook_last assignment_last; do
           run_one "$model" "$bits" "$mode" "$rbvt_mode"
-        done < <(expand_rbvt_modes)
-      fi
-    done < <(expand_modes)
+        done
+      done < <(expand_rbvt_modes)
+    else
+      while IFS= read -r mode; do
+        if [[ "$mode" == "lnq" ]]; then
+          run_one "$model" "$bits" "$mode" "na"
+        else
+          while IFS= read -r rbvt_mode; do
+            run_one "$model" "$bits" "$mode" "$rbvt_mode"
+          done < <(expand_rbvt_modes)
+        fi
+      done < <(expand_modes)
+    fi
 
     if [[ "$CLEANUP_AFTER_SETTING" == "1" ]]; then
       echo "--- Cleaning caches for model=${model} bits=${bits} ---"
