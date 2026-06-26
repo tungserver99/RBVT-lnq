@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import gc
+import os
 import sys
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
@@ -17,8 +19,12 @@ if str(GUIDEDQUANT_ROOT) not in sys.path:
 
 from any_precision.analyzer import get_analyzer
 from any_precision.quantization import any_precision_quantize, layerwise_nuq
+from any_precision.quantization import datautils as guidedquant_datautils
+from any_precision.quantization import layerwise_main as guidedquant_layerwise_main
+from any_precision.quantization import main as guidedquant_main
 from any_precision.quantization.layerwise_quantize import fix_hessian_shape, update_P
 
+from calibration_utils import get_c4_calibration_data
 from quantizers.base_quantizer import QuantResult
 from quantizers.rbvt import apply_rbvt
 
@@ -133,6 +139,62 @@ def build_hessian_cache_path(
     )
 
 
+@contextmanager
+def _patched_guidedquant_c4_tokens():
+    original_datautils_get_tokens = guidedquant_datautils.get_tokens
+    original_main_get_tokens = guidedquant_main.get_tokens
+    original_layerwise_get_tokens = guidedquant_layerwise_main.get_tokens
+
+    def squeeze_style_get_tokens(
+        dataset_name,
+        split,
+        tokenizer,
+        seq_len,
+        num_samples,
+        save_path=None,
+        seed=None,
+    ):
+        if dataset_name != "c4":
+            return original_datautils_get_tokens(
+                dataset_name,
+                split,
+                tokenizer,
+                seq_len,
+                num_samples,
+                save_path,
+                seed,
+            )
+
+        if save_path is not None and os.path.isfile(save_path):
+            return torch.load(save_path)
+
+        cache_dir = Path(save_path).parent if save_path is not None else ROOT / "calibration_cache"
+        token_batches = get_c4_calibration_data(
+            tokenizer=tokenizer,
+            n_samples=num_samples,
+            seqlen=seq_len,
+            seed=42 if seed is None else seed,
+            return_tensors=True,
+            cache_dir=cache_dir,
+        )
+        tokens = [batch.squeeze(0).cpu() for batch in token_batches]
+
+        if save_path is not None:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            torch.save(tokens, save_path)
+        return tokens
+
+    guidedquant_datautils.get_tokens = squeeze_style_get_tokens
+    guidedquant_main.get_tokens = squeeze_style_get_tokens
+    guidedquant_layerwise_main.get_tokens = squeeze_style_get_tokens
+    try:
+        yield
+    finally:
+        guidedquant_datautils.get_tokens = original_datautils_get_tokens
+        guidedquant_main.get_tokens = original_main_get_tokens
+        guidedquant_layerwise_main.get_tokens = original_layerwise_get_tokens
+
+
 def run_lnq_pipeline(
     model_path: str,
     bits: int,
@@ -153,47 +215,48 @@ def run_lnq_pipeline(
     sub_qlayer: tuple[int, int] | None,
     is_nosal: bool,
 ):
-    print("Running GuidedQuant initialization cache build ...")
-    any_precision_quantize(
-        model=model_path,
-        seed_precision=bits,
-        parent_precision=bits,
-        mode="quantize",
-        yaml_path=yaml_path,
-        cache_dir=cache_dir,
-        dataset=dataset,
-        seq_len=seq_len,
-        num_examples=num_examples,
-        cpu_count=cpu_count,
-        overwrite_tokens=overwrite_tokens,
-        overwrite_gradients=overwrite_gradients,
-        overwrite_quantize=overwrite_quantize,
-        overwrite_pack=overwrite_pack,
-        random_state=random_state,
-        num_groups=num_groups,
-    )
+    with _patched_guidedquant_c4_tokens():
+        print("Running GuidedQuant initialization cache build ...")
+        any_precision_quantize(
+            model=model_path,
+            seed_precision=bits,
+            parent_precision=bits,
+            mode="quantize",
+            yaml_path=yaml_path,
+            cache_dir=cache_dir,
+            dataset=dataset,
+            seq_len=seq_len,
+            num_examples=num_examples,
+            cpu_count=cpu_count,
+            overwrite_tokens=overwrite_tokens,
+            overwrite_gradients=overwrite_gradients,
+            overwrite_quantize=overwrite_quantize,
+            overwrite_pack=overwrite_pack,
+            random_state=random_state,
+            num_groups=num_groups,
+        )
 
-    print("Running GuidedQuant LNQ cache build ...")
-    layerwise_nuq(
-        model=model_path,
-        seed_precision=bits,
-        mode="quantize",
-        yaml_path=yaml_path,
-        cache_dir=cache_dir,
-        dataset=dataset,
-        seq_len=seq_len,
-        num_examples=num_examples,
-        cpu_count=cpu_count,
-        overwrite_tokens=overwrite_tokens,
-        overwrite_quantize=overwrite_quantize,
-        overwrite_pack=overwrite_pack,
-        random_state=random_state,
-        num_groups=num_groups,
-        num_iterations=num_iterations,
-        cd_cycles=cd_cycles,
-        sub_qlayer=sub_qlayer,
-        is_nosal=is_nosal,
-    )
+        print("Running GuidedQuant LNQ cache build ...")
+        layerwise_nuq(
+            model=model_path,
+            seed_precision=bits,
+            mode="quantize",
+            yaml_path=yaml_path,
+            cache_dir=cache_dir,
+            dataset=dataset,
+            seq_len=seq_len,
+            num_examples=num_examples,
+            cpu_count=cpu_count,
+            overwrite_tokens=overwrite_tokens,
+            overwrite_quantize=overwrite_quantize,
+            overwrite_pack=overwrite_pack,
+            random_state=random_state,
+            num_groups=num_groups,
+            num_iterations=num_iterations,
+            cd_cycles=cd_cycles,
+            sub_qlayer=sub_qlayer,
+            is_nosal=is_nosal,
+        )
 
 
 def load_tokenizer(model_path: str, hf_token: str | None = None):
